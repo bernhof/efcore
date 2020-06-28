@@ -1,6 +1,7 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -723,11 +724,89 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
                     }
                 }
 
+                foreach (var skipNavigation in entityType.GetSkipNavigations())
+                {
+                    var navigationValue = entry[skipNavigation];
+                    if (navigationValue != null)
+                    {
+                        if (skipNavigation.IsCollection)
+                        {
+                            var others = ((IEnumerable)navigationValue).Cast<object>().ToList();
+                            foreach (var otherEntity in others)
+                            {
+                                var otherEntry = stateManager.TryGetEntry(otherEntity, skipNavigation.Inverse.DeclaringEntityType);
+                                if (otherEntry == null
+                                    || otherEntry.EntityState == EntityState.Detached)
+                                {
+                                    // If dependents in collection are not yet tracked, then save them away so that
+                                    // when we start tracking them we can come back and fixup this principal to them
+                                    stateManager.RecordReferencedUntrackedEntity(otherEntity, skipNavigation, entry);
+                                }
+                                else
+                                {
+                                    var associationEntityType = skipNavigation.AssociationEntityType;
+                                    var foreignKey = skipNavigation.ForeignKey;
+                                    var otherForeignKey = skipNavigation.Inverse.ForeignKey;
+
+                                    var principalKeyValue = entry[foreignKey.PrincipalKey.Properties[0]];
+                                    var otherPrincipalKeyValue = otherEntry[otherForeignKey.PrincipalKey.Properties[0]];
+
+                                    var associationEntry = stateManager.Entries.SingleOrDefault(
+                                        e => e.EntityType == associationEntityType
+                                            && e[foreignKey.Properties[0]] == principalKeyValue
+                                            && e[otherForeignKey.Properties[0]] == otherPrincipalKeyValue);
+
+                                    if (associationEntry == null)
+                                    {
+                                        var associationEntity = Activator.CreateInstance(associationEntityType.ClrType);
+                                        associationEntry = stateManager.GetOrCreateEntry(associationEntity, associationEntityType);
+                                    }
+
+                                    SetForeignKeyProperties(associationEntry, entry, foreignKey, setModified, fromQuery);
+                                    SetForeignKeyProperties(associationEntry, otherEntry, otherForeignKey, setModified, fromQuery);
+
+                                    if (associationEntry.EntityState == EntityState.Detached)
+                                    {
+                                        associationEntry.SetEntityState(EntityState.Added);
+                                    }
+
+                                    AddToCollection(otherEntry, skipNavigation.Inverse, entry, fromQuery);
+                                    //SetNavigation(otherEntry, skipNavigation.Inverse, entry, fromQuery);
+
+                                    // //var associationEntry = stateManager.TryGetEntry(de  pendentEntity, skipNavigation.DeclaringEntityType);
+                                    // skipNavigation.AssociationEntityType
+                                    //
+                                    //FixupToDependent(entry, dependentEntry, foreignKey, setModified, fromQuery);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // var targetEntityType = principalToDependent.TargetEntityType;
+                            // var dependentEntry = stateManager.TryGetEntry(navigationValue, targetEntityType);
+                            // if (dependentEntry == null
+                            //     || dependentEntry.EntityState == EntityState.Detached)
+                            // {
+                            //     // If dependent is not yet tracked, then save it away so that
+                            //     // when we start tracking it we can come back and fixup this principal to it
+                            //     stateManager.RecordReferencedUntrackedEntity(navigationValue, principalToDependent, entry);
+                            // }
+                            // else
+                            // {
+                            //     FixupToDependent(entry, dependentEntry, foreignKey, setModified, fromQuery);
+                            // }
+                        }
+                    }
+                }
+
                 // If the entity was previously referenced while it was still untracked, go back and do the fixup
                 // that we would have done then now that the entity is tracked.
                 foreach (var danglerEntry in stateManager.GetRecordedReferrers(entry.Entity, clear: true))
                 {
-                    DelayedFixup(danglerEntry.Item2, danglerEntry.Item1, entry, fromQuery);
+                    if (danglerEntry.Item1 is INavigation)
+                    {
+                        DelayedFixup(danglerEntry.Item2, (INavigation)danglerEntry.Item1, entry, fromQuery);
+                    }
                 }
             }
         }
@@ -938,7 +1017,7 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
             }
         }
 
-        private void SetNavigation(InternalEntityEntry entry, INavigation navigation, InternalEntityEntry value, bool fromQuery)
+        private void SetNavigation(InternalEntityEntry entry, INavigationBase navigation, InternalEntityEntry value, bool fromQuery)
         {
             if (navigation != null)
             {
@@ -957,7 +1036,7 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
             }
         }
 
-        private void AddToCollection(InternalEntityEntry entry, INavigation navigation, InternalEntityEntry value, bool fromQuery)
+        private void AddToCollection(InternalEntityEntry entry, INavigationBase navigation, InternalEntityEntry value, bool fromQuery)
         {
             if (navigation != null)
             {
@@ -976,7 +1055,7 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
             }
         }
 
-        private void RemoveFromCollection(InternalEntityEntry entry, INavigation navigation, InternalEntityEntry value)
+        private void RemoveFromCollection(InternalEntityEntry entry, INavigationBase navigation, InternalEntityEntry value)
         {
             _changeDetector.Suspend();
             try
@@ -994,7 +1073,7 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
 
         private void SetReferenceOrAddToCollection(
             InternalEntityEntry entry,
-            INavigation navigation,
+            INavigationBase navigation,
             InternalEntityEntry value,
             bool fromQuery)
         {
@@ -1010,7 +1089,7 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
 
         private void ResetReferenceOrRemoveCollection(
             InternalEntityEntry entry,
-            INavigation navigation,
+            INavigationBase navigation,
             InternalEntityEntry value,
             bool fromQuery)
         {

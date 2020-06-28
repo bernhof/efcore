@@ -18,6 +18,37 @@ namespace Microsoft.EntityFrameworkCore
     public abstract partial class GraphUpdatesTestBase<TFixture>
         where TFixture : GraphUpdatesTestBase<TFixture>.GraphUpdatesFixtureBase, new()
     {
+        [ConditionalFact]
+        public virtual void Save_many_to_many()
+        {
+            ExecuteWithStrategyInTransaction(
+                context =>
+                {
+                    var many1s = new[] { new Many1(), new Many1(), new Many1() };
+                    var many2s = new[] { new Many2(), new Many2(), new Many2() };
+
+                    Add(many1s[0].Others, many2s[0]);
+                    Add(many1s[0].Others, many2s[1]);
+                    Add(many1s[0].Others, many2s[2]);
+
+                    Add(many2s[0].Others, many1s[0]);
+                    Add(many2s[0].Others, many1s[1]);
+                    Add(many2s[0].Others, many1s[2]);
+
+                    context.AddRange(many1s[0], many1s[1], many1s[2]);
+
+                    context.AddRange(many2s[0], many2s[1], many2s[2]);
+
+                    context.SaveChanges();
+                },
+                context =>
+                {
+                    var results = context.Set<Many1>().Include(e => e.Others).ToList();
+
+                    Assert.Equal(3, results.Count);
+                });
+        }
+
         [ConditionalTheory]
         [InlineData((int)ChangeMechanism.Principal, false, CascadeTiming.OnSaveChanges)]
         [InlineData((int)ChangeMechanism.Principal, true, CascadeTiming.OnSaveChanges)]

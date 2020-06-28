@@ -287,13 +287,14 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Internal
 
             var isNotifying = entityType.GetChangeTrackingStrategy() != ChangeTrackingStrategy.Snapshot;
 
-            foreach (var navigation in entityType.GetDeclaredNavigations())
+            foreach (var navigation in entityType.GetDeclaredNavigations()
+                .Union<PropertyBase>(entityType.GetDeclaredSkipNavigations()))
             {
                 var indexes = new PropertyIndexes(
                     index: navigationIndex++,
                     originalValueIndex: -1,
                     shadowIndex: navigation.IsShadowProperty() ? shadowIndex++ : -1,
-                    relationshipIndex: ((INavigation)navigation).IsCollection && isNotifying ? -1 : relationshipIndex++,
+                    relationshipIndex: ((INavigationBase)navigation).IsCollection && isNotifying ? -1 : relationshipIndex++,
                     storeGenerationIndex: -1);
 
                 navigation.PropertyIndexes = indexes;

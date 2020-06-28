@@ -40,6 +40,9 @@ namespace Microsoft.EntityFrameworkCore
                     {
                         b.Property(e => e.AlternateId).ValueGeneratedOnAdd();
 
+                        b.HasMany(e => e.Many)
+                            .WithOne(e => e.Parent);
+
                         b.HasMany(e => e.RequiredChildren)
                             .WithOne(e => e.Parent)
                             .HasForeignKey(e => e.ParentId);
@@ -138,6 +141,15 @@ namespace Microsoft.EntityFrameworkCore
                             .HasPrincipalKey(e => e.AlternateId)
                             .HasForeignKey(e => e.ParentAlternateId);
                     });
+
+                modelBuilder.Entity<Many1>()
+                    .HasMany(e => e.Others)
+                    .WithMany(e => e.Others)
+                    .UsingEntity<Many1ToMany2>(
+                        l => l.HasOne<Many2>().WithMany().HasForeignKey(e => e.Many2Id),
+                        r => r.HasOne<Many1>().WithMany().HasForeignKey(e => e.Many1Id));
+
+                modelBuilder.Entity<Many1ToMany2>().HasKey(e => new { e.Many1Id, e.Many2Id });
 
                 modelBuilder.Entity<Required1>()
                     .HasMany(e => e.Children)
@@ -379,6 +391,13 @@ namespace Microsoft.EntityFrameworkCore
                 => new Root
                 {
                     AlternateId = RootAK,
+                    // Many = new Many1
+                    //         {
+                    //             Others = new ObservableHashSet<Many2>(LegacyReferenceEqualityComparer.Instance)
+                    //             {
+                    //                 new Many2(), new Many2(), new Many2()
+                    //             }
+                    //         },
                     RequiredChildren =
                         new ObservableHashSet<Required1>(LegacyReferenceEqualityComparer.Instance)
                         {
@@ -604,9 +623,11 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Expression<Func<Root, bool>> IsTheRoot => r => r.AlternateId == Fixture.RootAK;
 
+        protected virtual IQueryable<Root> ModifyQueryRoot(IQueryable<Root> query) => query;
+
         protected Root LoadRequiredGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.RequiredChildren).ThenInclude(e => e.Children)
                 .Include(e => e.RequiredSingle).ThenInclude(e => e.Single)
                 .Single(IsTheRoot);
@@ -614,7 +635,7 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Root LoadOptionalGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.OptionalChildren).ThenInclude(e => e.Children)
                 .Include(e => e.OptionalChildren).ThenInclude(e => e.CompositeChildren)
                 .Include(e => e.OptionalSingle).ThenInclude(e => e.Single)
@@ -625,7 +646,7 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Root LoadRequiredNonPkGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.RequiredNonPkSingle).ThenInclude(e => e.Single)
                 .Include(e => e.RequiredNonPkSingleDerived).ThenInclude(e => e.Single)
                 .Include(e => e.RequiredNonPkSingleDerived).ThenInclude(e => e.Root)
@@ -637,7 +658,7 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Root LoadRequiredAkGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.RequiredChildrenAk).ThenInclude(e => e.Children)
                 .Include(e => e.RequiredChildrenAk).ThenInclude(e => e.CompositeChildren)
                 .Include(e => e.RequiredSingleAk).ThenInclude(e => e.Single)
@@ -647,7 +668,7 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Root LoadOptionalAkGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.OptionalChildrenAk).ThenInclude(e => e.Children)
                 .Include(e => e.OptionalChildrenAk).ThenInclude(e => e.CompositeChildren)
                 .Include(e => e.OptionalSingleAk).ThenInclude(e => e.Single)
@@ -659,7 +680,7 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Root LoadRequiredNonPkAkGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.RequiredNonPkSingleAk).ThenInclude(e => e.Single)
                 .Include(e => e.RequiredNonPkSingleAkDerived).ThenInclude(e => e.Single)
                 .Include(e => e.RequiredNonPkSingleAkDerived).ThenInclude(e => e.Root)
@@ -671,7 +692,7 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Root LoadOptionalOneToManyGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.OptionalChildren).ThenInclude(e => e.Children)
                 .Include(e => e.OptionalChildren).ThenInclude(e => e.CompositeChildren)
                 .Include(e => e.OptionalChildrenAk).ThenInclude(e => e.Children)
@@ -681,7 +702,7 @@ namespace Microsoft.EntityFrameworkCore
 
         protected Root LoadRequiredCompositeGraph(DbContext context)
         {
-            return context.Set<Root>()
+            return ModifyQueryRoot(context.Set<Root>())
                 .Include(e => e.RequiredCompositeChildren).ThenInclude(e => e.CompositeChildren)
                 .Single(IsTheRoot);
         }
@@ -977,6 +998,7 @@ namespace Microsoft.EntityFrameworkCore
         {
             private int _id;
             private Guid _alternateId;
+            private IEnumerable<Many1> _many = new ObservableHashSet<Many1>(LegacyReferenceEqualityComparer.Instance);
             private IEnumerable<Required1> _requiredChildren = new ObservableHashSet<Required1>(LegacyReferenceEqualityComparer.Instance);
             private IEnumerable<Optional1> _optionalChildren = new ObservableHashSet<Optional1>(LegacyReferenceEqualityComparer.Instance);
             private RequiredSingle1 _requiredSingle;
@@ -1009,6 +1031,12 @@ namespace Microsoft.EntityFrameworkCore
             {
                 get => _alternateId;
                 set => SetWithNotify(value, ref _alternateId);
+            }
+
+            public IEnumerable<Many1> Many
+            {
+                get => _many;
+                set => SetWithNotify(value, ref _many);
             }
 
             public IEnumerable<Required1> RequiredChildren
@@ -1128,6 +1156,99 @@ namespace Microsoft.EntityFrameworkCore
             public override bool Equals(object obj)
             {
                 var other = obj as Root;
+                return _id == other?.Id;
+            }
+
+            public override int GetHashCode() => _id;
+        }
+
+        protected class Many1 : NotifyingEntity
+        {
+            private int _id;
+            private int? _parentId;
+            private Root _parent;
+            private IEnumerable<Many2> _others = new ObservableHashSet<Many2>(LegacyReferenceEqualityComparer.Instance);
+
+            public int Id
+            {
+                get => _id;
+                set => SetWithNotify(value, ref _id);
+            }
+
+            public int? ParentId
+            {
+                get => _parentId;
+                set => SetWithNotify(value, ref _parentId);
+            }
+
+            public Root Parent
+            {
+                get => _parent;
+                set => SetWithNotify(value, ref _parent);
+            }
+
+            public IEnumerable<Many2> Others
+            {
+                get => _others;
+                set => SetWithNotify(value, ref _others);
+            }
+
+            public override bool Equals(object obj)
+            {
+                var other = obj as Many1;
+                return _id == other?.Id;
+            }
+
+            public override int GetHashCode() => _id;
+        }
+
+        protected class Many1ToMany2 : NotifyingEntity
+        {
+            private int _many1Id;
+            private int _many2Id;
+
+            public int Many1Id
+            {
+                get => _many1Id;
+                set => SetWithNotify(value, ref _many1Id);
+            }
+
+            public int Many2Id
+            {
+                get => _many2Id;
+                set => SetWithNotify(value, ref _many2Id);
+            }
+
+            public override bool Equals(object obj)
+            {
+                var other = obj as Many1ToMany2;
+                return _many1Id == other?.Many1Id
+                    && _many2Id == other.Many2Id;
+            }
+
+            public override int GetHashCode() => _many1Id + _many2Id;
+        }
+
+        protected class Many2 : NotifyingEntity
+        {
+            private int _id;
+            private IEnumerable<Many1> _others = new ObservableHashSet<Many1>(LegacyReferenceEqualityComparer.Instance);
+
+            public int Id
+            {
+                get => _id;
+                set => SetWithNotify(value, ref _id);
+            }
+
+            public IEnumerable<Many1> Others
+            {
+                get => _others;
+                set => SetWithNotify(value, ref _others);
+            }
+
+            public override bool Equals(object obj)
+            {
+                var other = obj as Many2;
                 return _id == other?.Id;
             }
 
