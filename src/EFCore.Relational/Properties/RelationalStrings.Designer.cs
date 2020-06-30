@@ -881,6 +881,12 @@ namespace Microsoft.EntityFrameworkCore.Diagnostics
                 GetString("IncompatibleTableExcludedMismatch", nameof(table), nameof(entityType), nameof(otherEntityType)),
                 table, entityType, otherEntityType);
 
+        /// <summary>
+        ///     Unable to identify the concrete entity type to materialize in TPT hierarchy.
+        /// </summary>
+        public static string QueryUnableToIdentifyConcreteTypeInTPT
+            => GetString("QueryUnableToIdentifyConcreteTypeInTPT");
+
         private static string GetString(string name, params string[] formatterNames)
         {
             var value = _resourceManager.GetString(name);

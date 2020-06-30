@@ -431,10 +431,6 @@ namespace Microsoft.EntityFrameworkCore.Query
                 });
         }
 
-        protected virtual void UseTransaction(DatabaseFacade facade, IDbContextTransaction transaction)
-        {
-        }
-
         [ConditionalFact(Skip = "Issue#16298")]
         public virtual void Union_siblings_with_duplicate_property_in_subquery()
         {
@@ -557,7 +553,25 @@ namespace Microsoft.EntityFrameworkCore.Query
             Assert.Equal("Great spotted kiwi", kiwi.Name);
         }
 
+        [ConditionalFact]
+        public virtual void Is_operator_on_result_of_FirstOrDefault()
+        {
+            using var context = CreateContext();
+            var animals = context.Set<Animal>()
+                .Where(a => context.Set<Animal>().FirstOrDefault(a1 => a1.Name == "Great spotted kiwi") is Kiwi)
+                .OrderBy(a => a.Species)
+                .ToList();
+
+            Assert.Equal(2, animals.Count);
+            Assert.IsType<Kiwi>(animals[0]);
+            Assert.IsType<Eagle>(animals[1]);
+        }
+
         protected InheritanceContext CreateContext() => Fixture.CreateContext();
+
+        protected virtual void UseTransaction(DatabaseFacade facade, IDbContextTransaction transaction)
+        {
+        }
 
         protected virtual bool EnforcesFkConstraints => true;
 
